@@ -10,7 +10,6 @@ CC = gcc
 LD = ld
 OBJCOPY = objcopy
 
-# Dodano flagi -fno-builtin oraz -O2 dla stabilizacji kodu UEFI
 CFLAGS = -I$(EFI_INC) -I$(EFI_INC_X86) \
          -fpic -ffreestanding -fno-builtin \
          -fno-stack-protector -fno-stack-check \
@@ -18,8 +17,8 @@ CFLAGS = -I$(EFI_INC) -I$(EFI_INC_X86) \
          -maccumulate-outgoing-args \
          -O2 -Wall -Wextra -c
 
-# Dodano jawną flagę punktu wejścia -e efi_main
-LDFLAGS = -shared -Bsymbolic -e efi_main \
+# Używamy _start, aby zainicjować crt0
+LDFLAGS = -shared -Bsymbolic -e _start \
           -L$(EFI_LIB) \
           -T $(EFI_LIB)/elf_x86_64_efi.lds \
           $(EFI_LIB)/crt0-efi-x86_64.o
@@ -34,12 +33,11 @@ $(OBJ_FILE): kernel.c
 $(SO_FILE): $(OBJ_FILE)
 	$(LD) $(LDFLAGS) $(OBJ_FILE) -o $(SO_FILE) $(LIBS)
 
-# Dokładne sekcje wymagane przez UEFI Windows/Firmware Loader
 $(TARGET): $(SO_FILE)
 	$(OBJCOPY) -j .text -j .sdata -j .data -j .rodata \
-	           -j .dynamic -j .dynsym -j .rel -j .rela \
-	           -j .rel.* -j .rela.* -j .reloc \
-	           --target=efi-app-x86_64 $(SO_FILE) $(TARGET)
+                  -j .dynamic -j .dynsym -j .rel -j .rela \
+                  -j .rel.* -j .rela.* -j .reloc \
+                  --target=efi-app-x86_64 $(SO_FILE) $(TARGET)
 
 clean:
 	rm -f $(OBJ_FILE) $(SO_FILE) $(TARGET)

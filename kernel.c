@@ -1,25 +1,3 @@
-// MIT License
-// 
-// Copyright (c) 2026 ROZcloud
-// 
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-// 
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
 #include <efi.h>
 #include <efilib.h>
 
@@ -51,10 +29,8 @@ char adres_hex[100];
 #define COL_TERM_BG     0x07  
 #define COL_SHADOW      0x08  
 
-// Wirtualna pamięć ekranu zapobiegająca awariom zapisu pod 0xB8000
 static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
 
-// Globalne wskaźniki gnu-efi mapowane automatycznie
 extern EFI_SYSTEM_TABLE *ST;
 extern EFI_BOOT_SERVICES *BS;
 
@@ -110,10 +86,9 @@ static struct MainMenuItem menu_bar[MAX_MENU_ITEMS];
 static int total_menu_items = 0;
 static int menu_active = 0;         
 static int menu_selected_main = 0;
-static int menu_dropdown_open = 0;  
+static int menu_dropdown_open = 0;
 static int menu_selected_sub = 0;
 static const char* global_custom_help_text = " F1 Pomoc  F10 Menu  Alt+X Zamknij  Alt+WSAD Ruch Okna  Alt+TAB Przelacz";
-
 static int win_glowny;
 static char command_input[16];
 
@@ -131,14 +106,12 @@ static void core_layer_bring_to_front(int idx) {
     for (int i = 0; i < total_windows; i++) rendering_layers[i]->is_active = (i == total_windows - 1);
 }
 
-// Czyszczenie matrycy ekranu
 void clear() {
     for (int i = 0; i < SCR_W * SCR_H; i++) {
         vga_shadow_matrix[i] = (COL_DESKTOP << 8) | ' ';
     }
 }
 
-// Funkcja print pisząca do bezpiecznego bufora wirtualnego
 void print(const char* str, int line, int col, char color) {
     if (line < 0 || line >= SCR_H || col < 0 || col >= SCR_W) return;
     int offset = line * SCR_W + col;
@@ -147,18 +120,14 @@ void print(const char* str, int line, int col, char color) {
     }
 }
 
-// Przepisanie bufora wirtualnego na ekran przy użyciu natywnych funkcji UEFI ConOut
 void tui_refresh_screen() {
     ST->ConOut->EnableCursor(ST->ConOut, FALSE);
-    
-    // Konwertujemy wirtualny ekran linia po linii, aby zoptymalizować prędkość renderowania w UEFI
     for (int y = 0; y < SCR_H; y++) {
         ST->ConOut->SetCursorPosition(ST->ConOut, 0, y);
         for (int x = 0; x < SCR_W; x++) {
             unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
             unsigned char ch = cell & 0xFF;
             unsigned char attr = (cell >> 8) & 0xFF;
-            
             ST->ConOut->SetAttribute(ST->ConOut, attr & 0x0F);
             CHAR16 uefi_char[2] = {(CHAR16)ch, 0};
             ST->ConOut->OutputString(ST->ConOut, uefi_char);
@@ -167,11 +136,8 @@ void tui_refresh_screen() {
     ST->ConOut->EnableCursor(ST->ConOut, TRUE);
 }
 
-// Budowanie klatki interfejsu (Twoja pełna oryginalna logika rysowania warstw)
 void tui_render_all_layers() {
     clear();
-    
-    // Pasek Menu górny
     for (int c = 0; c < SCR_W; c++) vga_shadow_matrix[0 * SCR_W + c] = (COL_MENU_BAR << 8) | ' ';
     for (int i = 0; i < total_menu_items; i++) {
         char attr = (menu_active && menu_selected_main == i) ? COL_MENU_SEL : COL_MENU_BAR;
@@ -182,7 +148,6 @@ void tui_render_all_layers() {
         vga_shadow_matrix[0 * SCR_W + (xp + 1 + j)] = (attr << 8) | ' ';
     }
 
-    // Dolny pasek pomocy
     const char* help_to_display = global_custom_help_text;
     if (total_windows > 0 && rendering_layers[total_windows - 1]->help_text) {
         help_to_display = rendering_layers[total_windows - 1]->help_text;
@@ -191,13 +156,10 @@ void tui_render_all_layers() {
     for (int c = 0; c < SCR_W; c++) vga_shadow_matrix[row_offset + c] = (COL_MENU_BAR << 8) | ' ';
     for (int i = 0; help_to_display[i] != 0 && i < SCR_W; i++) vga_shadow_matrix[row_offset + i] = (COL_MENU_BAR << 8) | help_to_display[i];
 
-    // Rysowanie okien ze stosu renderowania
     for (int z = 0; z < total_windows; z++) {
         struct Window* win = rendering_layers[z];
         char w_col = win->is_active ? COL_WIN_ACT : COL_WIN_PAS;
         char h_col = win->is_active ? COL_HDR_ACT : COL_HDR_PAS;
-
-        // Cienie okien
         for (int l = 1; l <= win->h; l++) {
             int sx1 = win->x + win->w, sx2 = win->x + win->w + 1, sy = win->y + l;
             if (sy < SCR_H - 1) {
@@ -210,7 +172,6 @@ void tui_render_all_layers() {
             if (sx < SCR_W && sy < SCR_H - 1) vga_shadow_matrix[sy * SCR_W + sx] = (COL_SHADOW << 8) | (vga_shadow_matrix[sy * SCR_W + sx] & 0x00FF);
         }
 
-        // Ramki okna
         for (int l = 0; l < win->h; l++) {
             for (int c = 0; c < win->w; c++) {
                 unsigned char ch = ' ';
@@ -227,20 +188,16 @@ void tui_render_all_layers() {
                 }
             }
         }
-
-        // Tytuły i przyciski zamknięcia okien
         for (int c = 1; c < win->w - 1; c++) vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + c)] = (h_col << 8) | ' ';
         vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 2)] = (h_col << 8) | '[';
         vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 3)] = win->is_permanent ? ((h_col << 8) | '-') : ((0x4F << 8) | 'X');
         vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 4)] = (h_col << 8) | ']';
-
-        int tl = core_strlen(win->title); 
+        int tl = core_strlen(win->title);
         int t_start = win->x + ((win->w - tl) / 2);
         for (int i = 0; i < tl && (t_start + i) < (win->x + win->w - 2); i++) {
             vga_shadow_matrix[(win->y + 1) * SCR_W + (t_start + i)] = (h_col << 8) | win->title[i];
         }
 
-        // Komponenty wewnątrz okien
         for (int i = 0; i < win->child_count; i++) {
             struct Component* comp = &win->children[i];
             int scrolled_rel_y = comp->rel_y - win->scroll_y;
@@ -249,11 +206,9 @@ void tui_render_all_layers() {
             int cy = win->y + scrolled_rel_y;
             int has_focus = (!menu_active && win->is_active && win->current_focus_comp == i);
             char dynamic_attr = has_focus ? COL_COMP_FOCUS : w_col;
-
             if (comp->type == COMP_TEXT) {
                 for (int j = 0; comp->text[j] && (cx + j) < SCR_W; j++) vga_shadow_matrix[cy * SCR_W + (cx + j)] = (w_col << 8) | comp->text[j];
             } else if (comp->type == COMP_BUTTON) {
-                int len = core_strlen(comp->text);
                 print(comp->text, cy, cx, dynamic_attr);
             } else if (comp->type == COMP_INPUT) {
                 int lbl_l = core_strlen(comp->text);
@@ -266,50 +221,27 @@ void tui_render_all_layers() {
             }
         }
     }
-    
-    // Zrzucenie skompletowanej klatki graficznej na monitor
     tui_refresh_screen();
 }
 
-// Pobieranie danych wejściowych z klawiatury przez API UEFI
 void input(char* buffer, int line, int col, int limit) {
     int i = 0;
     EFI_INPUT_KEY key;
     EFI_STATUS status;
-
     buffer[0] = '\0';
-
     while(1) {
         tui_render_all_layers();
-        
         status = ST->ConIn->ReadKeyStroke(ST->ConIn, &key);
         if (status == EFI_SUCCESS) {
-            // Obsługa klawisza Enter
-            if (key.UnicodeChar == L'\r' || key.UnicodeChar == L'\n') {
-                buffer[i] = '\0';
-                break;
-            } 
-            // Obsługa klawisza Backspace
-            else if (key.UnicodeChar == L'\b' && i > 0) {
-                i--;
-                buffer[i] = '\0';
-                print(" ", line, col + i, 0x07);
-            }
-            // Pobieranie zwykłych znaków ASCII
-            else if (key.UnicodeChar >= 32 && key.UnicodeChar <= 126 && i < limit) { 
-                buffer[i] = (char)key.UnicodeChar;
-                i++;
-                buffer[i] = '\0';
-            }
+            if (key.UnicodeChar == L'\r' || key.UnicodeChar == L'\n') { buffer[i] = '\0'; break; } 
+            else if (key.UnicodeChar == L'\b' && i > 0) { i--; buffer[i] = '\0'; print(" ", line, col + i, 0x07); }
+            else if (key.UnicodeChar >= 32 && key.UnicodeChar <= 126 && i < limit) { buffer[i] = (char)key.UnicodeChar; i++; buffer[i] = '\0'; }
         }
-        // Krótkie uśpienie, by nie przeciążać procesora w pętli bezczynności
-        ST->BootServices->Stall(10000); 
+        ST->BootServices->Stall(10000);
     }
 }
 
-void delay(int count) {
-    ST->BootServices->Stall(count * 1000);
-}
+void delay(int count) { ST->BootServices->Stall(count * 1000); }
 
 void run_hex(char* input_str) {
     static unsigned char bin[128];
@@ -333,10 +265,10 @@ void run_hex(char* input_str) {
 int tui_create_window(const char* title, int x, int y, int w, int h) {
     if (total_windows >= MAX_WIN) return -1;
     struct Window* win = &windows_pool[total_windows];
-    win->id = total_windows; win->title = title; win->x = x; win->y = y; win->w = w; win->h = h;
+    win->id = total_windows; win->title = title; win->x = x; win->y = y; win->w = w;
+    win->h = h;
     win->current_focus_comp = 0; win->scroll_y = 0; win->virtual_h = h; win->next_item_y = 3; win->child_count = 0;
     win->is_modal = 0; win->is_permanent = 0;
-
     rendering_layers[total_windows] = win; total_windows++; core_layer_bring_to_front(total_windows - 1);
     return win->id;
 }
@@ -351,7 +283,8 @@ int ui_add_input(int win_id, const char* label, char* buf, int max_len) {
     struct Window* win = &windows_pool[win_id];
     int idx = win->child_count;
     struct Component* c = &win->children[win->child_count++];
-    c->type = COMP_INPUT; c->text = label; c->rel_x = 3; c->rel_y = win->next_item_y;
+    c->type = COMP_INPUT; c->text = label; c->rel_x = 3;
+    c->rel_y = win->next_item_y;
     c->w = 14; c->buffer = buf; c->buffer_len = max_len; c->curr_chars = 0;
     win->next_item_y += 2;
     return idx;
@@ -372,10 +305,7 @@ void shell_loop() {
         print("RozOS Interactive UEFI Shell", 1, 2, 0x0E);
         print("RozOS>", 3, 2, 0x0F);
         input(buffer, 3, 9, 100);
-        
-        if (strcmp(buffer, "reboot") == 0) {
-            ST->RuntimeServices->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
-        }
+        if (strcmp(buffer, "reboot") == 0) ST->RuntimeServices->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
         else if (strcmp(buffer, "version") == 0) {
             clear();
             print("RozOS Version 7.0 (Pure 64bit UEFI Native)", 2, 2, 0x0F);
@@ -417,9 +347,9 @@ void shell_loop() {
     }
 }
 
-// Główny oficjalny punkt wejścia aplikacji UEFI ładowany przez maszynę
-EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
     InitializeLib(ImageHandle, SystemTable);
+    ST->BootServices->SetWatchdogTimer(0, 0, 0, NULL);
     ST->ConOut->ClearScreen(ST->ConOut);
     shell_loop();
     return EFI_SUCCESS;
