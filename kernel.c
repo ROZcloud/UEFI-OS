@@ -112,11 +112,10 @@ void tui_flush_to_uefi_fast() {
 }
 
 void clear() {
-    for(int i = 0; i < SCR_W * SCR_H; i++) {
-        vga_shadow_matrix[i] = (0x07 << 8) | ' ';
+    if (ST != NULL && ST->ConOut != NULL) {
+        ST->ConOut->ClearScreen(ST->ConOut);
+        ST->ConOut->SetAttribute(ST->ConOut, EFI_LIGHTGRAY | EFI_BACKGROUND_BLACK);
     }
-    ST->ConOut->ClearScreen(ST->ConOut);
-    ST->ConOut->SetCursorPosition(ST->ConOut, 0, 0);
 }
 
 // Wypisywanie tekstu w konkretnym miejscu - wersja UEFI wrapper
@@ -1150,7 +1149,8 @@ unsigned char uefi_key_to_scancode(EFI_INPUT_KEY key) {
     
     return 0;
 }
-
+char hex_cmd[428];
+char buffer[16] = {0};
 void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
     Print(L"[BOOT] Testing print...\n");
     print("[BOOT] Loaded print module", 0, 0, 0x0E);
@@ -1170,7 +1170,6 @@ void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
         print("SLEEP MODE ACTIVE", 2, 0, 0x0A);
 	    print("Type / to help", 3, 0, 0x0A);
         print("RozOS>> ", 4, 0, 0x0F);
-        char buffer[16] = {0};
         input(buffer, 4, 8, 10);
 
         if(strcmp(buffer, "status") == 0) {
@@ -1198,7 +1197,6 @@ void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
 	    else if(strcmp(buffer, "hex") == 0) {
             clear();
             print("hex>> ", 0, 0, 0x0F);
-	        char hex_cmd[428];
 	        input(hex_cmd, 0, 6, 100);
 	        run_hex(hex_cmd);
 	        delay(1000);
