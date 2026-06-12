@@ -91,51 +91,26 @@ int str_contains(const char* str, const char* sub) {
 #define SCR_H 25
 static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
 
-// [Tłumacz UEFI] Rysowanie z matrycy na ekran
-void tui_flush_to_uefi() {
-    ST->ConOut->EnableCursor(ST->ConOut, FALSE);
-    
-    // Bufory na jeden znak (jako CHAR16)
-    CHAR16 char_to_print[2];
-    char_to_print[1] = 0; // Terminator
+void tui_flush_to_uefi_fast() {
+    CHAR16 row_buffer[SCR_W + 1]; 
+    row_buffer[SCR_W] = 0; // Terminator
 
     for (int y = 0; y < SCR_H; y++) {
+        ST->ConOut->SetCursorPosition(ST->ConOut, 0, y);
+        
         for (int x = 0; x < SCR_W; x++) {
             unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
-            unsigned char attr = (cell >> 8) & 0xFF;
             unsigned char ch = cell & 0xFF;
-
-            // 1. Ustawienie koloru (atrybutu)
-            ST->ConOut->SetAttribute(ST->ConOut, attr);
             
-            // 2. Ustawienie pozycji kursora
-            ST->ConOut->SetCursorPosition(ST->ConOut, x, y);
-
-            // 3. Mapowanie znaków graficznych
-            CHAR16 uefi_char = (CHAR16)ch;
-            switch(ch) {
-                case 218: uefi_char = 0x250C; break;
-                case 196: uefi_char = 0x2500; break;
-                case 191: uefi_char = 0x2510; break;
-                case 192: uefi_char = 0x2514; break;
-                case 217: uefi_char = 0x2518; break;
-                case 179: uefi_char = 0x2502; break;
-                case 205: uefi_char = 0x2550; break;
-                case 186: uefi_char = 0x2551; break;
-                case 201: uefi_char = 0x2554; break;
-                case 187: uefi_char = 0x2557; break;
-                case 200: uefi_char = 0x255A; break;
-                case 188: uefi_char = 0x255D; break;
-            }
-
-            // Użycie Print() zamiast OutputString
-            char_to_print[0] = uefi_char;
-            Print(L"%s", char_to_print);
+            // Tutaj wrzuć swój switch z mapowaniem znaków graficznych
+            row_buffer[x] = (CHAR16)ch; 
         }
+        
+        // Jedno wywołanie na cały wiersz zamiast 80 wywołań
+        ST->ConOut->OutputString(ST->ConOut, row_buffer);
     }
-    
-    ST->ConOut->EnableCursor(ST->ConOut, TRUE);
 }
+
 // Czyszczenie ekranu (szare litery na czarnym tle) - wersja UEFI wrapper
 void clear() {
     for(int i = 0; i < SCR_W * SCR_H; i++) {
