@@ -32,7 +32,6 @@ char adres_hex[100];
 #define CHAR_HL '-'
 #define CHAR_VL '|'
 
-// Multiboot info nie jest potrzebne w natywnym UEFI, ale zachowujemy strukturę dla kompatybilności wstecznej kodu
 struct multiboot_info {
     unsigned int flags;
     unsigned int mem_lower;
@@ -41,7 +40,7 @@ struct multiboot_info {
     unsigned int cmdline;
 };
 
-// Globalne wskaźniki UEFI
+// Zmiana nazw struktur globalnych, aby uniknąć konfliktu z gnu-efi
 EFI_HANDLE            gImageHandle;
 EFI_SYSTEM_TABLE     *gST;
 EFI_BOOT_SERVICES    *gBS;
@@ -62,20 +61,15 @@ int str_contains(const char* str, const char* sub) {
     return 0;
 }
 
-// Czyszczenie ekranu za pomocą UEFI
 void clear() {
     gST->ConOut->ClearScreen(gST->ConOut);
 }
 
-// Wypisywanie tekstu w konkretnym miejscu w UEFI
 void print(const char* str, int line, int col, char color) {
-    // Mapowanie kolorów VGA na kolory UEFI
     UINTN efi_color = color & 0x0F;
     gST->ConOut->SetAttribute(gST->ConOut, efi_color);
     gST->ConOut->SetCursorPosition(gST->ConOut, col, line);
 
-    // UEFI wymaga ciągów znaków UTF-16 (Unicode)
-    // Dokonujemy prostej konwersji ASCII -> Unicode w locie
     CHAR16 wstr[256];
     int i = 0;
     for (; str[i] != '\0' && i < 255; i++) {
@@ -88,7 +82,6 @@ void print(const char* str, int line, int col, char color) {
 
 char get_ascii_from_efi(EFI_INPUT_KEY key) {
     if (key.ScanCode == 0) {
-        // Zwykły znak tekstowy
         if (key.UnicodeChar == L'\r') return '\n';
         if (key.UnicodeChar == L'\b') return '\b';
         if (key.UnicodeChar >= 32 && key.UnicodeChar <= 126) return (char)key.UnicodeChar;
@@ -138,18 +131,18 @@ int strcmp(const char* s1, const char* s2) {
     return *(unsigned char*)s1 - *(unsigned char*)s2;
 }
 
-void run_hex(char* input) {
+void run_hex(char* input_str) {
     static unsigned char bin[128];
     int p = 0;
     int i = 0;
-    while (input[i] != '\0' && p < 127) {
-        if (input[i] == ' ') {
+    while (input_str[i] != '\0' && p < 127) {
+        if (input_str[i] == ' ') {
             i++;
             continue;
         }
         unsigned char byte = 0;
         for (int j = 0; j < 2; j++) {
-            char c = input[i + j];
+            char c = input_str[i + j];
             byte <<= 4;
             if (c >= '0' && c <= '9') byte += (c - '0');
             else if (c >= 'a' && c <= 'f') byte += (c - 'a' + 10);
@@ -164,14 +157,12 @@ void run_hex(char* input) {
 }
 
 void delay(int count) {
-    // UEFI udostępnia funkcje mikrosekundowych opóźnień w Boot Services
     gBS->Stall(count * 1000);
 }
 
-char* random() {
+char* random_num() {
     static char buf[2];
-    UINT64 val = 7; // Prosta inicjalizacja
-    // Próba odczytu sprzętowego generatora (jeśli procesor wspiera) lub fallback
+    UINT64 val = 7;
     __asm__ __volatile__ (
         "rdrand %0"
         : "=r" (val)
@@ -183,7 +174,6 @@ char* random() {
     return buf;
 }
 
-// Struktury ACPI zachowane ze względu na kompatybilność logiki frameworka
 struct RSDPDescriptor {
     char Signature[8];
     uint8_t Checksum;
@@ -228,7 +218,6 @@ int memcmp_local(const void* s1, const void* s2, int n) {
     return 0;
 }
 
-// Pobieranie tablicy ACPI z konfiguracji systemowej UEFI
 struct FADT* find_fadt() {
     EFI_GUID acpi20_guid = { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
     for (UINTN i = 0; i < gST->NumberOfTableEntries; i++) {
@@ -251,19 +240,20 @@ struct FADT* find_fadt() {
 }
 
 void acpi_enable(struct FADT* fadt) {
-    // W UEFI ACPI jest domyślnie włączone przez firmware.
+    (void)fadt; 
 }
 
 void acpi_disable(struct FADT* fadt) {
-    // Wyłączenie komputera pod UEFI realizujemy funkcją z Runtime Services
+    (void)fadt;
     gRT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
 }
 
 int wait_for_power(struct FADT* fadt) {
+    (void)fadt;
     return 0;
 }
 
-struct FADT* fadt = 0;
+struct FADT* global_fadt = 0;
 
 void dev() {
     while(1) {
@@ -273,25 +263,22 @@ void dev() {
         char dshell[16] = {0};
         input(dshell, 1, 6, 0x0F);
         if(strcmp(dshell, "acpi") == 0) {
-            fadt = find_fadt();
+            global_fadt = find_fadt();
         }
     }
 }
 
 int boot_param(struct multiboot_info* mbi, const char* param_name) {
+    (void)mbi; (void)param_name;
     return 0;
 }
 
-// RozOS GUI Framework w środowisku UEFI tekstowym
 #define SCR_W 80
 #define SCR_H 25
 #define MAX_COMP 16
 #define MAX_WIN 10
-#define MAX_TERMINAL_CMDS 12
 #define MAX_MENU_ITEMS 5
 #define MAX_SUB_ITEMS 6
-#define TERM_MAX_LINES 32
-#define TERM_LINE_WIDTH 50
 
 #define COL_DESKTOP     0x1F
 #define COL_MENU_BAR    0x70
@@ -310,7 +297,6 @@ struct Window;
 
 typedef void (*TUI_EventHandler)(struct Window* win, struct Component* comp);
 typedef void (*TUI_ConfirmHandler)(int result_yes);
-typedef void (*TUI_CmdHandler)(int win_id, int term_idx);
 typedef void (*TUI_MenuHandler)(void); 
 typedef void (*TUI_FKeyHandler)(void);
 
@@ -322,7 +308,7 @@ struct Component {
     int rel_x, rel_y, w, h, value;
     char* buffer;
     int buffer_len, curr_chars;    
-    char term_history[TERM_MAX_LINES][TERM_LINE_WIDTH];
+    char term_history[32][50];
     int term_head;
     const char* term_prompt;
     TUI_EventHandler on_action;
@@ -338,8 +324,6 @@ struct Window {
     TUI_FKeyHandler f_handlers[13];
     struct Component children[MAX_COMP]; 
 };
-
-struct TerminalCommand { const char* name; TUI_CmdHandler handler; };
 
 struct SubMenuItem {
     const char* name;
@@ -357,8 +341,6 @@ static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
 static struct Window windows_pool[MAX_WIN];
 static struct Window* rendering_layers[MAX_WIN];
 static int total_windows = 0;
-static struct TerminalCommand registered_cmds[MAX_TERMINAL_CMDS];
-static int total_registered_cmds = 0;
 static struct MainMenuItem menu_bar[MAX_MENU_ITEMS];
 static int total_menu_items = 0;
 static int menu_active = 0;         
@@ -368,19 +350,9 @@ static int menu_selected_sub = 0;
 static const char* global_custom_help_text = " F1 Pomoc  F10 Menu  Alt+X Zamknij  Alt+WSAD Ruch Okna  Alt+TAB Przelacz";
 
 static int win_glowny;
-static int win_statystyki;
 static char command_input[16];
 
 static int core_strlen(const char* s) { int l = 0; while(s[l]) l++; return l; }
-static void core_poke(int x, int y, char attr, unsigned char ch) { 
-    if (x >= 0 && x < SCR_W && y >= 0 && y < SCR_H) {
-        vga_shadow_matrix[y * SCR_W + x] = (attr << 8) | ch; 
-    }
-}
-static int core_strcmp(const char* s1, const char* s2) { 
-    while (*s1 && (*s1 == *s2)) { s1++; s2++; } 
-    return *(unsigned char*)s1 - *(unsigned char*)s2; 
-}
 
 static void core_layer_bring_to_front(int idx) {
     if (idx < 0 || idx >= total_windows || (rendering_layers[total_windows-1]->is_modal && total_windows > 0)) return;
@@ -578,7 +550,6 @@ void tui_refresh_screen() {
         }
     }
 
-    // Odzwierciedlamy macierz cieniowaną na ekran konsoli UEFI element po elemencie
     for (int y = 0; y < SCR_H; y++) {
         for (int x = 0; x < SCR_W; x++) {
             unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
@@ -614,7 +585,7 @@ void ui_set_bottom_help(const char* text) {
 }
 
 void tui_init_framework() { 
-    total_windows = 0; total_registered_cmds = 0; total_menu_items = 0; menu_active = 0;
+    total_windows = 0; total_menu_items = 0; menu_active = 0;
 }
 
 int tui_create_window(const char* title, int x, int y, int w, int h) {
@@ -728,16 +699,15 @@ int ui_add_terminal(int win_id, int height_lines) {
 
 void gui_start_tui() {
     tui_init_framework();
-    win_glowny = tui_create_window("RozOS Glowny Pulpit", 5, 3, 50, 15);
+    win_glowny = tui_create_window("RozOS Glownit Pulpit", 5, 3, 50, 15);
     ui_add_text(win_glowny, "Witaj w RozOS GUI Framework v7.0");
     ui_add_text(win_glowny, "System gotowy do pracy.");
     ui_add_input(win_glowny, "Komenda: ", command_input, 15);
     
     tui_refresh_screen();
-    delay(2000); // Pozwalamy użytkownikowi zobaczyć framework przed powrotem do CLI
+    delay(2000); 
 }
 
-// Główna pętla powłoki tekstowej systemu
 void shell_loop() {
     char buffer[128];
     while(1) {
@@ -777,7 +747,7 @@ void shell_loop() {
         else if (strcmp(buffer, "logout") == 0) {
             clear();
             print("System turning off...", 0, 0, 0x04);
-            acpi_disable(fadt);
+            acpi_disable(global_fadt);
         }
         else if (strcmp(buffer, "/") == 0) {
             clear();
@@ -794,21 +764,15 @@ void shell_loop() {
     }
 }
 
-// Główny punkt wejścia (Entry Point) aplikacji UEFI BOOT64.EFI
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
-    // Inicjalizacja globalnych wskaźników UEFI
     gImageHandle = ImageHandle;
     gST = SystemTable;
     gBS = SystemTable->BootServices;
     gRT = SystemTable->RuntimeServices;
 
-    // Inicjalizacja biblioteki efilib
     InitializeLib(ImageHandle, SystemTable);
 
-    // Czyszczenie ekranu przy starcie
     clear();
-    
-    // Uruchomienie pętli systemowej powłoki
     shell_loop();
 
     return EFI_SUCCESS;
