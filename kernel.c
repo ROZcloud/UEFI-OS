@@ -1165,6 +1165,9 @@ unsigned char uefi_key_to_scancode(EFI_INPUT_KEY key) {
 }
 
 void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
+    Print(L"[BOOT] Testing print\n");
+    print("RozOS 0.1.3", 0, 0, 0x0E);
+    Print(L"[BOOT] Finding fadt\n");
     fadt = find_fadt();
     if(fadt) {
 	    acpi_enable(fadt);
