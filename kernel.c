@@ -760,11 +760,12 @@ void shell_loop() {
     }
 }
 
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
-    // Inicjalizacja gnu-efi konfiguruje wewnętrzne zmienne ST, BS i RT automatycznie
+EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
+    // Inicjalizacja biblioteki gnu-efi (Ustawia wskaźniki ST, BS, RT)
     InitializeLib(ImageHandle, SystemTable);
 
-    clear();
+    // Czyszczenie ekranu i start powłoki
+    ST->ConOut->ClearScreen(ST->ConOut);
     shell_loop();
 
     return EFI_SUCCESS;
