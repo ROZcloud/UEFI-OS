@@ -17,11 +17,9 @@ CFLAGS = -I$(EFI_INC) -I$(EFI_INC_X86) \
          -maccumulate-outgoing-args \
          -O2 -Wall -Wextra -c
 
-# Używamy _start, aby zainicjować crt0
 LDFLAGS = -shared -Bsymbolic -e _start \
           -L$(EFI_LIB) \
-          -T $(EFI_LIB)/elf_x86_64_efi.lds \
-          $(EFI_LIB)/crt0-efi-x86_64.o
+          -T $(EFI_LIB)/elf_x86_64_efi.lds
 
 LIBS = -lefi -lgnuefi
 
@@ -31,13 +29,13 @@ $(OBJ_FILE): kernel.c
 	$(CC) $(CFLAGS) kernel.c -o $(OBJ_FILE)
 
 $(SO_FILE): $(OBJ_FILE)
-    $(LD) $(LDFLAGS) $(EFI_LIB)/crt0-efi-x86_64.o $(OBJ_FILE) -o $(SO_FILE) $(LIBS)
+	$(LD) $(LDFLAGS) $(EFI_LIB)/crt0-efi-x86_64.o $(OBJ_FILE) -o $(SO_FILE) $(LIBS)
 
 $(TARGET): $(SO_FILE)
 	$(OBJCOPY) -j .text -j .sdata -j .data -j .rodata \
-                  -j .dynamic -j .dynsym -j .rel -j .rela \
-                  -j .rel.* -j .rela.* -j .reloc \
-                  --target=efi-app-x86_64 $(SO_FILE) $(TARGET)
+	          -j .dynamic -j .dynsym -j .rel -j .rela \
+	          -j .rel.* -j .rela.* -j .reloc \
+	          --target=efi-app-x86_64 $(SO_FILE) $(TARGET)
 
 clean:
 	rm -f $(OBJ_FILE) $(SO_FILE) $(TARGET)
