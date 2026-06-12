@@ -1165,27 +1165,9 @@ unsigned char uefi_key_to_scancode(EFI_INPUT_KEY key) {
 }
 
 void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
-    if (boot_param(mbi, "info_boot=1")) {
-        clear();
-        print("RozOS 0.1.3", 0, 0, 0x0E);
-        print("32 BIT MODE 16 CHAR BUFFER 1MB IMAGE", 1, 0, 0x0A);
-        print("To exit press power button", 2, 0, 0x0F);
-	    asm volatile (
-	        "cli \n\t"
-	        "1: \n\t"
-	        "hlt \n\t"
-	        "jmp 1b"
-	    );
-    }
-
-    if (boot_param(mbi, "no_acpi=1")) {
-        print("Acpi disabled", 0, 0, 0x0F);
-        delay(1000);
-    } else {
-        fadt = find_fadt();
-        if(fadt) {
-	        acpi_enable(fadt);
-        }
+    fadt = find_fadt();
+    if(fadt) {
+	    acpi_enable(fadt);
     }
 
     while(1) {
