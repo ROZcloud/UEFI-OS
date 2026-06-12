@@ -94,17 +94,21 @@ static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
 // [Tłumacz UEFI] Rysowanie z matrycy na ekran
 void tui_flush_to_uefi() {
     ST->ConOut->EnableCursor(ST->ConOut, FALSE);
+    
+    // Bufor na jedną linię ekranu + znak końca linii
+    CHAR16 line_buffer[SCR_W + 1]; 
+
     for (int y = 0; y < SCR_H; y++) {
         ST->ConOut->SetCursorPosition(ST->ConOut, 0, y);
+        
         for (int x = 0; x < SCR_W; x++) {
             unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
             unsigned char ch = cell & 0xFF;
-            unsigned char attr = (cell >> 8) & 0xFF;
-            ST->ConOut->SetAttribute(ST->ConOut, attr & 0x0F);
             
+            // Logika mapowania znaków (zostawiasz bez zmian)
             CHAR16 uefi_char = (CHAR16)ch;
-            // Tłumaczenie znaków ASCII na ramki Unicode dla płynnego UI w UEFI
             if(ch == 218) uefi_char = 0x250C;
+            else if(ch == 196) uefi_char = 0x2500;
             else if(ch == 191) uefi_char = 0x2510;
             else if(ch == 192) uefi_char = 0x2514;
             else if(ch == 217) uefi_char = 0x2518;
@@ -116,14 +120,17 @@ void tui_flush_to_uefi() {
             else if(ch == 187) uefi_char = 0x2557;
             else if(ch == 200) uefi_char = 0x255A;
             else if(ch == 188) uefi_char = 0x255D;
-
-            CHAR16 str[2] = {uefi_char, 0};
-            ST->ConOut->OutputString(ST->ConOut, str);
+            
+            line_buffer[x] = uefi_char;
         }
+        line_buffer[SCR_W] = 0; // Terminator stringa
+        
+        // WYŚLIJ CAŁĄ LINIĘ NA RAZ!
+        ST->ConOut->OutputString(ST->ConOut, line_buffer);
     }
+    
     ST->ConOut->EnableCursor(ST->ConOut, TRUE);
 }
-
 // Czyszczenie ekranu (szare litery na czarnym tle) - wersja UEFI wrapper
 void clear() {
     for(int i = 0; i < SCR_W * SCR_H; i++) {
@@ -1165,14 +1172,17 @@ unsigned char uefi_key_to_scancode(EFI_INPUT_KEY key) {
 }
 
 void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
-    Print(L"[BOOT] Testing print\n");
-    print("RozOS 0.1.3", 0, 0, 0x0E);
-    Print(L"[BOOT] Finding fadt\n");
+    Print(L"[BOOT] Testing print...\n");
+    print("[BOOT] Loaded print module", 0, 0, 0x0E);
+    Print(L"[BOOT] Finding fadt...\n");
     fadt = find_fadt();
+    Print(L"[BOOT] OK\n");
     if(fadt) {
+        Print(L"[BOOT] Loading acpi...\n");
 	    acpi_enable(fadt);
+        Print(L"[BOOT] Loaded acpi\n");
     }
-
+    Print(L"[BOOT] Starting system\n");
     while(1) {
         clear();
         print("RozOS 0.1.3", 0, 0, 0x0E);
@@ -1272,6 +1282,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     InitializeLib(ImageHandle, SystemTable);
     ST->BootServices->SetWatchdogTimer(0, 0, 0, NULL);
     Print(L"RozOS Booting...\n");
+    Print(L"[BOOT] Loading Kernel\n");
     // Wejdź do głównego pliku ze sztucznym wskaźnikiem Multiboot
     kernel_main(0, NULL);
     
