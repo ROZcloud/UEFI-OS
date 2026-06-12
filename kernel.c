@@ -111,12 +111,12 @@ void tui_flush_to_uefi_fast() {
     }
 }
 
-// Czyszczenie ekranu (szare litery na czarnym tle) - wersja UEFI wrapper
 void clear() {
     for(int i = 0; i < SCR_W * SCR_H; i++) {
         vga_shadow_matrix[i] = (0x07 << 8) | ' ';
     }
-    tui_flush_to_uefi();
+    ST->ConOut->ClearScreen(ST->ConOut);
+    ST->ConOut->SetCursorPosition(ST->ConOut, 0, 0);
 }
 
 // Wypisywanie tekstu w konkretnym miejscu - wersja UEFI wrapper
