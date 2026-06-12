@@ -32,243 +32,6 @@ char adres_hex[100];
 #define CHAR_HL '-'
 #define CHAR_VL '|'
 
-struct multiboot_info {
-    unsigned int flags;
-    unsigned int mem_lower;
-    unsigned int mem_upper;
-    unsigned int boot_device;
-    unsigned int cmdline;
-};
-
-// USUNIĘTO: Własne deklaracje ST, BS, RT. gnu-efi udostępnia je automatycznie w nagłówkach.
-
-int str_contains(const char* str, const char* sub) {
-    if (!str || !sub) return 0;
-    while (*str) {
-        const char* h = str;
-        const char* n = sub;
-        while (*h && *n && *h == *n) {
-            h++;
-            n++;
-        }
-        if (!*n) return 1;
-        str++;
-    }
-    return 0;
-}
-
-void clear() {
-    ST->ConOut->ClearScreen(ST->ConOut);
-}
-
-void print(const char* str, int line, int col, char color) {
-    UINTN efi_color = color & 0x0F;
-    ST->ConOut->SetAttribute(ST->ConOut, efi_color);
-    ST->ConOut->SetCursorPosition(ST->ConOut, col, line);
-
-    CHAR16 wstr[256];
-    int i = 0;
-    for (; str[i] != '\0' && i < 255; i++) {
-        wstr[i] = (CHAR16)str[i];
-    }
-    wstr[i] = L'\0';
-
-    ST->ConOut->OutputString(ST->ConOut, wstr);
-}
-
-char get_ascii_from_efi(EFI_INPUT_KEY key) {
-    if (key.ScanCode == 0) {
-        if (key.UnicodeChar == L'\r') return '\n';
-        if (key.UnicodeChar == L'\b') return '\b';
-        if (key.UnicodeChar >= 32 && key.UnicodeChar <= 126) return (char)key.UnicodeChar;
-    }
-    return 0;
-}
-
-void reboot() {
-    RT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
-    while(1);
-}
-
-void input(char* buffer, int line, int col, int limit) {
-    int i = 0;
-    EFI_INPUT_KEY key;
-    EFI_STATUS status;
-
-    ST->ConOut->SetCursorPosition(ST->ConOut, col, line);
-
-    while(1) {
-        status = ST->ConIn->ReadKeyStroke(ST->ConIn, &key);
-        if (status == EFI_SUCCESS) {
-            char c = get_ascii_from_efi(key);
-            
-            if(c == '\n') {
-                buffer[i] = '\0';
-                break;
-            } 
-            else if(c == '\b' && i > 0) {
-                i--;
-                buffer[i] = '\0';
-                print(" ", line, col + i, 0x07);
-                ST->ConOut->SetCursorPosition(ST->ConOut, col + i, line);
-            }
-            else if(c != 0 && i < limit) { 
-                buffer[i] = c;
-                char tmp[2] = {c, '\0'};
-                print(tmp, line, col + i, 0x0F);
-                i++;
-            }
-        }
-    }
-}
-
-int strcmp(const char* s1, const char* s2) {
-    while(*s1 && (*s1 == *s2)) { s1++; s2++; }
-    return *(unsigned char*)s1 - *(unsigned char*)s2;
-}
-
-void run_hex(char* input_str) {
-    static unsigned char bin[128];
-    int p = 0;
-    int i = 0;
-    while (input_str[i] != '\0' && p < 127) {
-        if (input_str[i] == ' ') {
-            i++;
-            continue;
-        }
-        unsigned char byte = 0;
-        for (int j = 0; j < 2; j++) {
-            char c = input_str[i + j];
-            byte <<= 4;
-            if (c >= '0' && c <= '9') byte += (c - '0');
-            else if (c >= 'a' && c <= 'f') byte += (c - 'a' + 10);
-        }
-        bin[p++] = byte;
-        i += 2;
-    }
-    if (p > 0 && bin[p - 1] != 0xc3) {
-        bin[p++] = 0xc3;
-    }
-    ((void (*)())bin)();
-}
-
-void delay(int count) {
-    BS->Stall(count * 1000);
-}
-
-char* random_num() {
-    static char buf[2];
-    UINT64 val = 7;
-    __asm__ __volatile__ (
-        "rdrand %0"
-        : "=r" (val)
-        :
-        : "cc"
-    );
-    buf[0] = (val % 10) + '0'; 
-    buf[1] = '\0';
-    return buf;
-}
-
-struct RSDPDescriptor {
-    char Signature[8];
-    uint8_t Checksum;
-    char OEMID[6];
-    uint8_t Revision;
-    uint32_t RsdtAddress;
-} __attribute__((packed));
-
-struct ACPISDTHeader {
-    char Signature[4];
-    uint32_t Length;
-    uint8_t Revision;
-    uint8_t Checksum;
-    char OEMID[6];
-    char OEMTableID[8];
-    uint32_t OEMRevision;
-    uint32_t CreatorID;
-    uint32_t CreatorRevision;
-};
-
-struct FADT {
-    struct ACPISDTHeader h;
-    uint32_t FirmwareCtrl;
-    uint32_t Dsdt;
-    uint8_t  Reserved;
-    uint8_t  PreferredPowerManagementProfile;
-    uint16_t SciInterrupt;
-    uint32_t SMI_CommandPort;
-    uint8_t  AcpiEnable;
-    uint8_t  AcpiDisable;
-    uint8_t  S4Bios_Req;
-    uint8_t  PSTATE_Control;
-    uint32_t PM1a_Event_Block;
-    uint32_t PM1b_Event_Block;
-    uint32_t PM1a_Control_Block;
-    uint32_t PM1b_Control_Block;
-} __attribute__((packed));
-
-int memcmp_local(const void* s1, const void* s2, int n) {
-    const unsigned char *p1 = s1, *p2 = s2;
-    while(n--) if(*p1++ != *p2++) return 1;
-    return 0;
-}
-
-struct FADT* find_fadt() {
-    EFI_GUID acpi20_guid = { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
-    for (UINTN i = 0; i < ST->NumberOfTableEntries; i++) {
-        if (CompareGuid(&ST->ConfigurationTable[i].VendorGuid, &acpi20_guid) == 0) {
-            struct RSDPDescriptor* rsdp = (struct RSDPDescriptor*)ST->ConfigurationTable[i].VendorTable;
-            if (memcmp_local(rsdp->Signature, "RSD PTR ", 8) == 0) {
-                struct ACPISDTHeader* rsdt = (struct ACPISDTHeader*)(UINTN)rsdp->RsdtAddress;
-                int entries = (rsdt->Length - sizeof(struct ACPISDTHeader)) / 4;
-                uint32_t* table_ptr = (uint32_t*)(UINTN)(rsdp->RsdtAddress + sizeof(struct ACPISDTHeader));
-                for (int j = 0; j < entries; j++) {
-                    struct ACPISDTHeader* h = (struct ACPISDTHeader*)(UINTN)table_ptr[j];
-                    if (memcmp_local(h->Signature, "FACP", 4) == 0) {
-                        return (struct FADT*)h;
-                    }
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-void acpi_enable(struct FADT* fadt) {
-    (void)fadt; 
-}
-
-void acpi_disable(struct FADT* fadt) {
-    (void)fadt;
-    RT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
-}
-
-int wait_for_power(struct FADT* fadt) {
-    (void)fadt;
-    return 0;
-}
-
-struct FADT* global_fadt = 0;
-
-void dev() {
-    while(1) {
-        clear();
-        print("Developer shell", 0, 0, 0x0C);
-        print("Dev>>", 1, 0, 0x0F);
-        char dshell[16] = {0};
-        input(dshell, 1, 6, 0x0F);
-        if(strcmp(dshell, "acpi") == 0) {
-            global_fadt = find_fadt();
-        }
-    }
-}
-
-int boot_param(struct multiboot_info* mbi, const char* param_name) {
-    (void)mbi; (void)param_name;
-    return 0;
-}
-
 #define SCR_W 80
 #define SCR_H 25
 #define MAX_COMP 16
@@ -287,6 +50,13 @@ int boot_param(struct multiboot_info* mbi, const char* param_name) {
 #define COL_INPUT_BOX   0x0F  
 #define COL_TERM_BG     0x07  
 #define COL_SHADOW      0x08  
+
+// Wirtualna pamięć ekranu zapobiegająca awariom zapisu pod 0xB8000
+static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
+
+// Globalne wskaźniki gnu-efi mapowane automatycznie
+extern EFI_SYSTEM_TABLE *ST;
+extern EFI_BOOT_SERVICES *BS;
 
 struct Component;
 struct Window;
@@ -333,7 +103,6 @@ struct MainMenuItem {
     int sub_count;
 };
 
-static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
 static struct Window windows_pool[MAX_WIN];
 static struct Window* rendering_layers[MAX_WIN];
 static int total_windows = 0;
@@ -349,6 +118,10 @@ static int win_glowny;
 static char command_input[16];
 
 static int core_strlen(const char* s) { int l = 0; while(s[l]) l++; return l; }
+static int strcmp(const char* s1, const char* s2) {
+    while(*s1 && (*s1 == *s2)) { s1++; s2++; }
+    return *(unsigned char*)s1 - *(unsigned char*)s2;
+}
 
 static void core_layer_bring_to_front(int idx) {
     if (idx < 0 || idx >= total_windows || (rendering_layers[total_windows-1]->is_modal && total_windows > 0)) return;
@@ -358,46 +131,73 @@ static void core_layer_bring_to_front(int idx) {
     for (int i = 0; i < total_windows; i++) rendering_layers[i]->is_active = (i == total_windows - 1);
 }
 
-void tui_refresh_screen() {
+// Czyszczenie matrycy ekranu
+void clear() {
     for (int i = 0; i < SCR_W * SCR_H; i++) {
-        vga_shadow_matrix[i] = (COL_DESKTOP << 8) | 32;
+        vga_shadow_matrix[i] = (COL_DESKTOP << 8) | ' ';
     }
+}
+
+// Funkcja print pisząca do bezpiecznego bufora wirtualnego
+void print(const char* str, int line, int col, char color) {
+    if (line < 0 || line >= SCR_H || col < 0 || col >= SCR_W) return;
+    int offset = line * SCR_W + col;
+    for (int i = 0; str[i] != '\0' && (col + i) < SCR_W; i++) {
+        vga_shadow_matrix[offset + i] = (color << 8) | (unsigned char)str[i];
+    }
+}
+
+// Przepisanie bufora wirtualnego na ekran przy użyciu natywnych funkcji UEFI ConOut
+void tui_refresh_screen() {
+    ST->ConOut->EnableCursor(ST->ConOut, FALSE);
     
-    for (int c = 0; c < SCR_W; c++) {
-        vga_shadow_matrix[0 * SCR_W + c] = (COL_MENU_BAR << 8) | ' ';
+    // Konwertujemy wirtualny ekran linia po linii, aby zoptymalizować prędkość renderowania w UEFI
+    for (int y = 0; y < SCR_H; y++) {
+        ST->ConOut->SetCursorPosition(ST->ConOut, 0, y);
+        for (int x = 0; x < SCR_W; x++) {
+            unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
+            unsigned char ch = cell & 0xFF;
+            unsigned char attr = (cell >> 8) & 0xFF;
+            
+            ST->ConOut->SetAttribute(ST->ConOut, attr & 0x0F);
+            CHAR16 uefi_char[2] = {(CHAR16)ch, 0};
+            ST->ConOut->OutputString(ST->ConOut, uefi_char);
+        }
     }
+    ST->ConOut->EnableCursor(ST->ConOut, TRUE);
+}
+
+// Budowanie klatki interfejsu (Twoja pełna oryginalna logika rysowania warstw)
+void tui_render_all_layers() {
+    clear();
+    
+    // Pasek Menu górny
+    for (int c = 0; c < SCR_W; c++) vga_shadow_matrix[0 * SCR_W + c] = (COL_MENU_BAR << 8) | ' ';
     for (int i = 0; i < total_menu_items; i++) {
         char attr = (menu_active && menu_selected_main == i) ? COL_MENU_SEL : COL_MENU_BAR;
         int xp = menu_bar[i].x_pos;
-        
         vga_shadow_matrix[0 * SCR_W + xp] = (attr << 8) | ' ';
         int j = 0;
-        for (; menu_bar[i].name[j]; j++) {
-            vga_shadow_matrix[0 * SCR_W + (xp + 1 + j)] = (attr << 8) | menu_bar[i].name[j];
-        }
+        for (; menu_bar[i].name[j]; j++) vga_shadow_matrix[0 * SCR_W + (xp + 1 + j)] = (attr << 8) | menu_bar[i].name[j];
         vga_shadow_matrix[0 * SCR_W + (xp + 1 + j)] = (attr << 8) | ' ';
     }
 
+    // Dolny pasek pomocy
     const char* help_to_display = global_custom_help_text;
-    if (total_windows > 0) {
-        struct Window* active_win = rendering_layers[total_windows - 1];
-        if (active_win->help_text != 0) {
-            help_to_display = active_win->help_text;
-        }
+    if (total_windows > 0 && rendering_layers[total_windows - 1]->help_text) {
+        help_to_display = rendering_layers[total_windows - 1]->help_text;
     }
-
     int row_offset = (SCR_H - 1) * SCR_W;
-    for (int c = 0; c < SCR_W; c++) {
-        vga_shadow_matrix[row_offset + c] = (COL_MENU_BAR << 8) | ' ';
-    }
-    for (int i = 0; help_to_display[i] != 0 && i < SCR_W; i++) {
-        vga_shadow_matrix[row_offset + i] = (COL_MENU_BAR << 8) | help_to_display[i];
-    }
+    for (int c = 0; c < SCR_W; c++) vga_shadow_matrix[row_offset + c] = (COL_MENU_BAR << 8) | ' ';
+    for (int i = 0; help_to_display[i] != 0 && i < SCR_W; i++) vga_shadow_matrix[row_offset + i] = (COL_MENU_BAR << 8) | help_to_display[i];
 
+    // Rysowanie okien ze stosu renderowania
     for (int z = 0; z < total_windows; z++) {
         struct Window* win = rendering_layers[z];
         char w_col = win->is_active ? COL_WIN_ACT : COL_WIN_PAS;
         char h_col = win->is_active ? COL_HDR_ACT : COL_HDR_PAS;
+
+        // Cienie okien
         for (int l = 1; l <= win->h; l++) {
             int sx1 = win->x + win->w, sx2 = win->x + win->w + 1, sy = win->y + l;
             if (sy < SCR_H - 1) {
@@ -410,6 +210,7 @@ void tui_refresh_screen() {
             if (sx < SCR_W && sy < SCR_H - 1) vga_shadow_matrix[sy * SCR_W + sx] = (COL_SHADOW << 8) | (vga_shadow_matrix[sy * SCR_W + sx] & 0x00FF);
         }
 
+        // Ramki okna
         for (int l = 0; l < win->h; l++) {
             for (int c = 0; c < win->w; c++) {
                 unsigned char ch = ' ';
@@ -426,17 +227,11 @@ void tui_refresh_screen() {
                 }
             }
         }
-        
-        for (int c = 1; c < win->w - 1; c++) {
-            vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + c)] = (h_col << 8) | ' ';
-        }
-        
+
+        // Tytuły i przyciski zamknięcia okien
+        for (int c = 1; c < win->w - 1; c++) vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + c)] = (h_col << 8) | ' ';
         vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 2)] = (h_col << 8) | '[';
-        if (win->is_permanent) {
-            vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 3)] = (h_col << 8) | '-';
-        } else {
-            vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 3)] = (0x4F << 8) | 'X';
-        }
+        vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 3)] = win->is_permanent ? ((h_col << 8) | '-') : ((0x4F << 8) | 'X');
         vga_shadow_matrix[(win->y + 1) * SCR_W + (win->x + 4)] = (h_col << 8) | ']';
 
         int tl = core_strlen(win->title); 
@@ -445,6 +240,7 @@ void tui_refresh_screen() {
             vga_shadow_matrix[(win->y + 1) * SCR_W + (t_start + i)] = (h_col << 8) | win->title[i];
         }
 
+        // Komponenty wewnątrz okien
         for (int i = 0; i < win->child_count; i++) {
             struct Component* comp = &win->children[i];
             int scrolled_rel_y = comp->rel_y - win->scroll_y;
@@ -453,320 +249,178 @@ void tui_refresh_screen() {
             int cy = win->y + scrolled_rel_y;
             int has_focus = (!menu_active && win->is_active && win->current_focus_comp == i);
             char dynamic_attr = has_focus ? COL_COMP_FOCUS : w_col;
-            if (cx < 0 || cx >= SCR_W || cy < 0 || cy >= SCR_H) continue;
+
             if (comp->type == COMP_TEXT) {
-                for (int j = 0; comp->text[j] && (cx + j) < SCR_W; j++) {
-                    vga_shadow_matrix[cy * SCR_W + (cx + j)] = (w_col << 8) | comp->text[j];
-                }
+                for (int j = 0; comp->text[j] && (cx + j) < SCR_W; j++) vga_shadow_matrix[cy * SCR_W + (cx + j)] = (w_col << 8) | comp->text[j];
             } else if (comp->type == COMP_BUTTON) {
-                int len = 0;
-                while(comp->text[len] != '\0') len++;
-                
-                vga_shadow_matrix[cy * SCR_W + cx] = (dynamic_attr << 8) | CHAR_TL;
-                for(int j = 0; j < len + 2; j++) {
-                    vga_shadow_matrix[cy * SCR_W + (cx + 1 + j)] = (dynamic_attr << 8) | CHAR_HL;
-                }
-                vga_shadow_matrix[cy * SCR_W + (cx + len + 3)] = (dynamic_attr << 8) | CHAR_TR;
-                
-                vga_shadow_matrix[(cy + 1) * SCR_W + cx] = (dynamic_attr << 8) | CHAR_VL;
-                for(int j = 0; j < len; j++) {
-                    vga_shadow_matrix[(cy + 1) * SCR_W + (cx + 2 + j)] = (dynamic_attr << 8) | comp->text[j];
-                }
-                vga_shadow_matrix[(cy + 1) * SCR_W + (cx + len + 3)] = (dynamic_attr << 8) | CHAR_VL;
-                
-                vga_shadow_matrix[(cy + 2) * SCR_W + cx] = (dynamic_attr << 8) | CHAR_BL;
-                for(int j = 0; j < len + 2; j++) {
-                    vga_shadow_matrix[(cy + 2) * SCR_W + (cx + 1 + j)] = (dynamic_attr << 8) | CHAR_HL;
-                }
-                vga_shadow_matrix[(cy + 2) * SCR_W + (cx + len + 3)] = (dynamic_attr << 8) | CHAR_BR;
-                
+                int len = core_strlen(comp->text);
+                print(comp->text, cy, cx, dynamic_attr);
             } else if (comp->type == COMP_INPUT) {
                 int lbl_l = core_strlen(comp->text);
-                for (int j = 0; j < lbl_l && (cx + j) < SCR_W; j++) {
-                    vga_shadow_matrix[cy * SCR_W + (cx + j)] = (w_col << 8) | comp->text[j];
-                }
+                for (int j = 0; j < lbl_l && (cx + j) < SCR_W; j++) vga_shadow_matrix[cy * SCR_W + (cx + j)] = (w_col << 8) | comp->text[j];
                 char input_attr = has_focus ? 0x4F : COL_INPUT_BOX;
                 for (int b = 0; b < comp->w && (cx + lbl_l + b) < SCR_W; b++) {
                     unsigned char ch = (comp->buffer && comp->buffer[b] != '\0') ? comp->buffer[b] : ' ';
                     vga_shadow_matrix[cy * SCR_W + (cx + lbl_l + b)] = (input_attr << 8) | ch;
                 }
-            } else if (comp->type == COMP_TERMINAL_APP) {
-                for (int th = 0; th < comp->h && (cy + th) < SCR_H; th++) {
-                    for (int tw = 0; tw < comp->w && (cx + tw) < SCR_W; tw++) {
-                        vga_shadow_matrix[(cy + th) * SCR_W + (cx + tw)] = (COL_TERM_BG << 8) | ' ';
-                    }
-                }
-                int print_row = 0;
-                for (int line_idx = 0; line_idx < comp->term_head && print_row < comp->h; line_idx++) {
-                    char* line_text = comp->term_history[line_idx];
-                    for (int char_idx = 0; line_text[char_idx] != '\0' && (cx + char_idx) < SCR_W; char_idx++) {
-                        if ((cy + print_row) < SCR_H) {
-                            vga_shadow_matrix[(cy + print_row) * SCR_W + (cx + char_idx)] = (0x0A << 8) | line_text[char_idx];
-                        }
-                    }
-                    print_row++;
-                }
             }
         }
     }
+    
+    // Zrzucenie skompletowanej klatki graficznej na monitor
+    tui_refresh_screen();
+}
 
-    if (menu_active && menu_dropdown_open) {
-        struct MainMenuItem* main_m = &menu_bar[menu_selected_main];
-        int m_x = main_m->x_pos;
-        int m_w = 18; 
-        int m_h = main_m->sub_count + 2;
-        for (int l = 0; l < m_h; l++) {
-            for (int c = 0; c < m_w; c++) {
-                char attr = COL_MENU_BAR;
-                unsigned char ch = ' ';
-                if (l == 0 || l == m_h - 1) ch = 196;
-                else if (c == 0 || c == m_w - 1) ch = 179;
-                if (l == 0 && c == 0) ch = 218;
-                if (l == 0 && c == m_w - 1) ch = 191;
-                if (l == m_h - 1 && c == 0) ch = 192;
-                if (l == m_h - 1 && c == m_w - 1) ch = 193;
-                if ((m_x + c) < SCR_W && (1 + l) < SCR_H) {
-                    vga_shadow_matrix[(1 + l) * SCR_W + (m_x + c)] = (attr << 8) | ch;
-                }
-            }
-        }
-        for (int i = 0; i < main_m->sub_count; i++) {
-            char item_attr = (menu_selected_sub == i) ? COL_MENU_SEL : COL_MENU_BAR;
-            for (int c = 1; c < m_w - 1; c++) {
-                if ((m_x + c) < SCR_W && (2 + i) < SCR_H) {
-                    vga_shadow_matrix[(2 + i) * SCR_W + (m_x + c)] = (item_attr << 8) | ' ';
-                }
-            }
-            const char* name = main_m->sub_items[i].name;
-            for (int j = 0; name[j] && j < (m_w - 3); j++) {
-                if ((m_x + 2 + j) < SCR_W && (2 + i) < SCR_H) {
-                    vga_shadow_matrix[(2 + i) * SCR_W + (m_x + 2 + j)] = (item_attr << 8) | name[j];
-                }
-            }
-        }
-    }
+// Pobieranie danych wejściowych z klawiatury przez API UEFI
+void input(char* buffer, int line, int col, int limit) {
+    int i = 0;
+    EFI_INPUT_KEY key;
+    EFI_STATUS status;
 
-    for (int y = 0; y < SCR_H; y++) {
-        for (int x = 0; x < SCR_W; x++) {
-            unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
-            char ch = cell & 0xFF;
-            char attr = (cell >> 8) & 0xFF;
-            char str_cell[2] = {ch, '\0'};
-            print(str_cell, y, x, attr);
+    buffer[0] = '\0';
+
+    while(1) {
+        tui_render_all_layers();
+        
+        status = ST->ConIn->ReadKeyStroke(ST->ConIn, &key);
+        if (status == EFI_SUCCESS) {
+            // Obsługa klawisza Enter
+            if (key.UnicodeChar == L'\r' || key.UnicodeChar == L'\n') {
+                buffer[i] = '\0';
+                break;
+            } 
+            // Obsługa klawisza Backspace
+            else if (key.UnicodeChar == L'\b' && i > 0) {
+                i--;
+                buffer[i] = '\0';
+                print(" ", line, col + i, 0x07);
+            }
+            // Pobieranie zwykłych znaków ASCII
+            else if (key.UnicodeChar >= 32 && key.UnicodeChar <= 126 && i < limit) { 
+                buffer[i] = (char)key.UnicodeChar;
+                i++;
+                buffer[i] = '\0';
+            }
         }
+        // Krótkie uśpienie, by nie przeciążać procesora w pętli bezczynności
+        ST->BootServices->Stall(10000); 
     }
 }
 
-int ui_menu_add_category(const char* name) {
-    if (total_menu_items >= MAX_MENU_ITEMS) return -1;
-    int prev_x = (total_menu_items == 0) ? 2 : menu_bar[total_menu_items - 1].x_pos + core_strlen(menu_bar[total_menu_items - 1].name) + 4;
-    menu_bar[total_menu_items].name = name;
-    menu_bar[total_menu_items].x_pos = prev_x;
-    menu_bar[total_menu_items].sub_count = 0;
-    return total_menu_items++;
+void delay(int count) {
+    ST->BootServices->Stall(count * 1000);
 }
 
-void ui_menu_add_item(int cat_id, const char* name, TUI_MenuHandler handler) {
-    if (cat_id < 0 || cat_id >= total_menu_items) return;
-    struct MainMenuItem* m = &menu_bar[cat_id];
-    if (m->sub_count < MAX_SUB_ITEMS) {
-        m->sub_items[m->sub_count].name = name;
-        m->sub_items[m->sub_count].handler = handler;
-        m->sub_count++;
+void run_hex(char* input_str) {
+    static unsigned char bin[128];
+    int p = 0, i = 0;
+    while (input_str[i] != '\0' && p < 127) {
+        if (input_str[i] == ' ') { i++; continue; }
+        unsigned char byte = 0;
+        for (int j = 0; j < 2; j++) {
+            char c = input_str[i + j];
+            byte <<= 4;
+            if (c >= '0' && c <= '9') byte += (c - '0');
+            else if (c >= 'a' && c <= 'f') byte += (c - 'a' + 10);
+        }
+        bin[p++] = byte;
+        i += 2;
     }
-}
-
-void ui_set_bottom_help(const char* text) {
-    global_custom_help_text = text;
-}
-
-void tui_init_framework() { 
-    total_windows = 0; total_menu_items = 0; menu_active = 0;
+    if (p > 0 && bin[p - 1] != 0xc3) bin[p++] = 0xc3;
+    ((void (*)())bin)();
 }
 
 int tui_create_window(const char* title, int x, int y, int w, int h) {
     if (total_windows >= MAX_WIN) return -1;
     struct Window* win = &windows_pool[total_windows];
-    win->id = total_windows; win->title = title; win->x = x; win->y = y; win->w = w;
-    win->h = h;
+    win->id = total_windows; win->title = title; win->x = x; win->y = y; win->w = w; win->h = h;
     win->current_focus_comp = 0; win->scroll_y = 0; win->virtual_h = h; win->next_item_y = 3; win->child_count = 0;
-    win->is_modal = 0; win->confirm_callback = 0;
-    win->is_permanent = 0;
-
-    for (int f = 1; f <= 12; f++) {
-        win->f_handlers[f] = 0;
-    } 
+    win->is_modal = 0; win->is_permanent = 0;
 
     rendering_layers[total_windows] = win; total_windows++; core_layer_bring_to_front(total_windows - 1);
     return win->id;
 }
 
-void ui_window_set_permanent(int win_id, int status) {
-    if (win_id >= 0 && win_id < MAX_WIN) {
-        windows_pool[win_id].is_permanent = status;
-    }
-}
-
-int ui_register_f_key(int f_number, TUI_FKeyHandler handler) {
-    if (f_number == 10 || f_number < 1 || f_number > 12) return 0;
-    if (total_windows == 0) return 0;
-    struct Window* active_win = rendering_layers[total_windows - 1];
-    active_win->f_handlers[f_number] = handler;
-    return 1;
-}
-
-void ui_unregister_f_key(int f_number) {
-    if (f_number == 10 || f_number < 1 || f_number > 12) return;
-    if (total_windows == 0) return;
-    struct Window* active_win = rendering_layers[total_windows - 1];
-    active_win->f_handlers[f_number] = 0;
-}
-
 void ui_add_text(int win_id, const char* text) {
     struct Window* win = &windows_pool[win_id];
     struct Component* c = &win->children[win->child_count++];
-    c->type = COMP_TEXT;
-    c->text = text;
-    c->rel_x = 3;
-    c->rel_y = win->next_item_y++;
-}
-
-int ui_add_button(int win_id, const char* label, TUI_EventHandler handler) {
-    struct Window* win = &windows_pool[win_id];
-    int idx = win->child_count;
-    struct Component* c = &win->children[win->child_count++];
-    c->type = COMP_BUTTON;
-    c->text = label;
-    c->rel_x = 3;
-    c->rel_y = win->next_item_y;
-    c->on_action = handler;
-    int len = 0;
-    while(label[len] != '\0') len++;
-    c->w = len + 4;
-    c->h = 3;
-    win->next_item_y += 4;
-    return idx;
-}
-
-int ui_add_progress(int win_id, int init_val) {
-    struct Window* win = &windows_pool[win_id];
-    int idx = win->child_count;
-    struct Component* c = &win->children[win->child_count++];
-    c->type = COMP_PROGRESS;
-    c->rel_x = 3;
-    c->rel_y = win->next_item_y;
-    c->w = win->w - 7;
-    c->value = init_val;
-    win->next_item_y += 2;
-    return idx;
+    c->type = COMP_TEXT; c->text = text; c->rel_x = 3; c->rel_y = win->next_item_y++;
 }
 
 int ui_add_input(int win_id, const char* label, char* buf, int max_len) {
     struct Window* win = &windows_pool[win_id];
     int idx = win->child_count;
     struct Component* c = &win->children[win->child_count++];
-    c->type = COMP_INPUT;
-    c->text = label;
-    c->rel_x = 3;
-    c->rel_y = win->next_item_y;
-    c->w = 14;
-    c->buffer = buf;
-    c->buffer_len = max_len;
-    c->curr_chars = 0;
-    buf[0] = '\0';
+    c->type = COMP_INPUT; c->text = label; c->rel_x = 3; c->rel_y = win->next_item_y;
+    c->w = 14; c->buffer = buf; c->buffer_len = max_len; c->curr_chars = 0;
     win->next_item_y += 2;
     return idx;
 }
 
-int ui_add_terminal(int win_id, int height_lines) {
-    struct Window* win = &windows_pool[win_id];
-    int idx = win->child_count;
-    struct Component* c = &win->children[win->child_count++];
-    c->type = COMP_TERMINAL_APP;
-    c->rel_x = 3;
-    c->rel_y = win->next_item_y;
-    c->w = win->w - 7;
-    c->h = height_lines;
-    c->term_head = 0;
-    c->term_prompt = "OS> ";
-    win->next_item_y += (height_lines + 1);
-    return idx;
-}
-
 void gui_start_tui() {
-    tui_init_framework();
-    win_glowny = tui_create_window("RozOS Glownit Pulpit", 5, 3, 50, 15);
-    ui_add_text(win_glowny, "Witaj w RozOS GUI Framework v7.0");
-    ui_add_text(win_glowny, "System gotowy do pracy.");
-    ui_add_input(win_glowny, "Komenda: ", command_input, 15);
-    
-    tui_refresh_screen();
-    delay(2000); 
+    total_windows = 0;
+    win_glowny = tui_create_window("RozOS Glowny Pulpit UEFI", 5, 3, 55, 15);
+    ui_add_text(win_glowny, "Witaj w RozOS GUI Framework 64-bit UEFI!");
+    ui_add_text(win_glowny, "System przeszedl pelna migracje architektury.");
+    ui_add_input(win_glowny, "Wpisz komende: ", command_input, 15);
 }
 
 void shell_loop() {
     char buffer[128];
     while(1) {
         clear();
-        print("RozOS Interactive Shell", 0, 0, 0x0E);
-        print("RozOS>", 1, 0, 0x0F);
-        
-        input(buffer, 1, 7, 100);
+        print("RozOS Interactive UEFI Shell", 1, 2, 0x0E);
+        print("RozOS>", 3, 2, 0x0F);
+        input(buffer, 3, 9, 100);
         
         if (strcmp(buffer, "reboot") == 0) {
-            reboot();
+            ST->RuntimeServices->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
         }
         else if (strcmp(buffer, "version") == 0) {
             clear();
-            print("RozOS Version 7.0 (UEFI x86_64 Build)", 1, 0, 0x0F);
-            delay(1500);
+            print("RozOS Version 7.0 (Pure 64bit UEFI Native)", 2, 2, 0x0F);
+            tui_refresh_screen();
+            delay(2000);
         }
         else if (strcmp(buffer, "status") == 0) {
             clear();
-            print("System Status: OK (Running under UEFI)", 1, 0, 0x0A);
-            delay(1500);
-        }
-        else if (strcmp(buffer, "hex") == 0) {
-            clear();
-            print("Enter hex machine code:", 0, 0, 0x0F);
-            char hex_cmd[128];
-            input(hex_cmd, 1, 0, 100);
-            run_hex(hex_cmd);
-            delay(1000);
-        }
-        else if (strcmp(buffer, "dev") == 0) {
-            dev();
+            print("System Status: OK (Running inside secure UEFI Environment)", 2, 2, 0x0A);
+            tui_refresh_screen();
+            delay(2000);
         }
         else if (strcmp(buffer, "gui") == 0) {
             gui_start_tui();
+            while(1) {
+                tui_render_all_layers();
+                input(command_input, 5, 20, 15);
+                if(strcmp(command_input, "exit") == 0) break;
+            }
         }
-        else if (strcmp(buffer, "logout") == 0) {
+        else if (strcmp(buffer, "hex") == 0) {
             clear();
-            print("System turning off...", 0, 0, 0x04);
-            acpi_disable(global_fadt);
+            print("Wprowadz kod maszynowy hex:", 2, 2, 0x0F);
+            char hex_cmd[128];
+            input(hex_cmd, 3, 2, 100);
+            run_hex(hex_cmd);
         }
         else if (strcmp(buffer, "/") == 0) {
             clear();
-            print("Commands:", 1, 0, 0x0F);
-            print("/       - help commands", 2, 0, 0x0F);
-            print("logout  - poweroff system", 3, 0, 0x0F);
-            print("status  - system status", 4, 0, 0x0F);
-            print("reboot  - reboot system", 5, 0, 0x0F);
-            print("version - show system version", 6, 0, 0x0F);
-            print("hex     - enter and run hex", 7, 0, 0x0F);
-            print("gui     - start RozOS TUI", 8, 0, 0x0F);
-            delay(2500);
+            print("Dostepne komendy UEFI:", 1, 2, 0x0F);
+            print("/       - pomoc techniczna", 2, 2, 0x0F);
+            print("status  - status operacyjny systemu", 3, 2, 0x0F);
+            print("reboot  - twardy restart komputera", 4, 2, 0x0F);
+            print("version - wersja jadra RozOS", 5, 2, 0x0F);
+            print("gui     - uruchomienie wirtualnego pulpitu TUI", 6, 2, 0x0F);
+            tui_refresh_screen();
+            delay(3500);
         }
     }
 }
 
+// Główny oficjalny punkt wejścia aplikacji UEFI ładowany przez maszynę
 EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
-    // Inicjalizacja biblioteki gnu-efi (Ustawia wskaźniki ST, BS, RT)
     InitializeLib(ImageHandle, SystemTable);
-
-    // Czyszczenie ekranu i start powłoki
     ST->ConOut->ClearScreen(ST->ConOut);
     shell_loop();
-
     return EFI_SUCCESS;
 }
