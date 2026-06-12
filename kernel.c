@@ -94,25 +94,25 @@ static unsigned short vga_shadow_matrix[SCR_W * SCR_H];
 // [Tłumacz UEFI] Rysowanie z matrycy na ekran
 void tui_flush_to_uefi() {
     ST->ConOut->EnableCursor(ST->ConOut, FALSE);
-    
-    // Bufor na jedną linię ekranu + znak końca linii
-    CHAR16 line_buffer[SCR_W + 1]; 
+    CHAR16 line_buffer[2]; // Bufor na 1 znak + terminator (skoro chcemy przeplatać)
 
     for (int y = 0; y < SCR_H; y++) {
-        ST->ConOut->SetCursorPosition(ST->ConOut, 0, y);
-        
         for (int x = 0; x < SCR_W; x++) {
             unsigned short cell = vga_shadow_matrix[y * SCR_W + x];
+            unsigned char attr = (cell >> 8) & 0xFF; // Pobieramy pełny atrybut
             unsigned char ch = cell & 0xFF;
-            
-            // Logika mapowania znaków (zostawiasz bez zmian)
+
+            // 1. Zawsze ustawiamy kursor i atrybut dla komórki
+            ST->ConOut->SetCursorPosition(ST->ConOut, x, y);
+            ST->ConOut->SetAttribute(ST->ConOut, attr);
+
+            // 2. Mapowanie znaków
             CHAR16 uefi_char = (CHAR16)ch;
             if(ch == 218) uefi_char = 0x250C;
             else if(ch == 196) uefi_char = 0x2500;
             else if(ch == 191) uefi_char = 0x2510;
             else if(ch == 192) uefi_char = 0x2514;
             else if(ch == 217) uefi_char = 0x2518;
-            else if(ch == 196) uefi_char = 0x2500;
             else if(ch == 179) uefi_char = 0x2502;
             else if(ch == 205) uefi_char = 0x2550;
             else if(ch == 186) uefi_char = 0x2551;
@@ -120,15 +120,13 @@ void tui_flush_to_uefi() {
             else if(ch == 187) uefi_char = 0x2557;
             else if(ch == 200) uefi_char = 0x255A;
             else if(ch == 188) uefi_char = 0x255D;
-            
-            line_buffer[x] = uefi_char;
+
+            // 3. Wypisujemy znak
+            line_buffer[0] = uefi_char;
+            line_buffer[1] = 0;
+            ST->ConOut->OutputString(ST->ConOut, line_buffer);
         }
-        line_buffer[SCR_W] = 0; // Terminator stringa
-        
-        // WYŚLIJ CAŁĄ LINIĘ NA RAZ!
-        ST->ConOut->OutputString(ST->ConOut, line_buffer);
     }
-    
     ST->ConOut->EnableCursor(ST->ConOut, TRUE);
 }
 // Czyszczenie ekranu (szare litery na czarnym tle) - wersja UEFI wrapper
