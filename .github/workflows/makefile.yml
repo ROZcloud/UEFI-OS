@@ -1,0 +1,33 @@
+name: Build RozOS ISO
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: make install-deps
+
+    - name: Build the project
+      run: make
+
+    - name: Create the ISO
+      run: make create
+    - name: Udostępnij plik ISO do pobrania
+      uses: actions/upload-artifact@v4
+      with:
+        name: System Build ISO
+        path: .
+        retention-days: 1
+    - name: Inform about successful build
+      run: echo "Build completed successfully!"
