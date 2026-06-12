@@ -1,33 +1,34 @@
-name: Build RozOS ISO
+name: Build RozOS UEFI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ "main", "master" ]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    # 1. Pobranie kodu źródłowego z repozytorium
+    - name: Checkout source code
+      uses: actions/checkout@v4
 
+    # 2. Instalacja niezbędnych kompilatorów i biblioteki gnu-efi
     - name: Install build dependencies
-      run: make install-deps
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc gnu-efi build-essential
 
-    - name: Build the project
+    # 3. Wywołanie Twojego pliku Makefile w celu kompilacji systemu
+    - name: Compile BOOT64.EFI
       run: make
 
-    - name: Create the ISO
-      run: make create
-    - name: Udostępnij plik ISO do pobrania
+    # 4. Zapisanie gotowego pliku BOOT64.EFI jako artefaktu zadania
+    - name: Upload BOOT64.EFI artifact
       uses: actions/upload-artifact@v4
       with:
-        name: System Build ISO
-        path: .
-        retention-days: 1
-    - name: Inform about successful build
-      run: echo "Build completed successfully!"
+        name: RozOS-BOOT64-EFI
+        path: BOOT64.EFI
+        if-no-files-found: error
