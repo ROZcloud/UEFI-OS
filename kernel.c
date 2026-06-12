@@ -40,11 +40,7 @@ struct multiboot_info {
     unsigned int cmdline;
 };
 
-// Zmiana nazw struktur globalnych, aby uniknąć konfliktu z gnu-efi
-EFI_HANDLE            gImageHandle;
-EFI_SYSTEM_TABLE     *gST;
-EFI_BOOT_SERVICES    *gBS;
-EFI_RUNTIME_SERVICES *gRT;
+// USUNIĘTO: Własne deklaracje ST, BS, RT. gnu-efi udostępnia je automatycznie w nagłówkach.
 
 int str_contains(const char* str, const char* sub) {
     if (!str || !sub) return 0;
@@ -62,13 +58,13 @@ int str_contains(const char* str, const char* sub) {
 }
 
 void clear() {
-    gST->ConOut->ClearScreen(gST->ConOut);
+    ST->ConOut->ClearScreen(ST->ConOut);
 }
 
 void print(const char* str, int line, int col, char color) {
     UINTN efi_color = color & 0x0F;
-    gST->ConOut->SetAttribute(gST->ConOut, efi_color);
-    gST->ConOut->SetCursorPosition(gST->ConOut, col, line);
+    ST->ConOut->SetAttribute(ST->ConOut, efi_color);
+    ST->ConOut->SetCursorPosition(ST->ConOut, col, line);
 
     CHAR16 wstr[256];
     int i = 0;
@@ -77,7 +73,7 @@ void print(const char* str, int line, int col, char color) {
     }
     wstr[i] = L'\0';
 
-    gST->ConOut->OutputString(gST->ConOut, wstr);
+    ST->ConOut->OutputString(ST->ConOut, wstr);
 }
 
 char get_ascii_from_efi(EFI_INPUT_KEY key) {
@@ -90,7 +86,7 @@ char get_ascii_from_efi(EFI_INPUT_KEY key) {
 }
 
 void reboot() {
-    gRT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
+    RT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
     while(1);
 }
 
@@ -99,10 +95,10 @@ void input(char* buffer, int line, int col, int limit) {
     EFI_INPUT_KEY key;
     EFI_STATUS status;
 
-    gST->ConOut->SetCursorPosition(gST->ConOut, col, line);
+    ST->ConOut->SetCursorPosition(ST->ConOut, col, line);
 
     while(1) {
-        status = gST->ConIn->ReadKeyStroke(gST->ConIn, &key);
+        status = ST->ConIn->ReadKeyStroke(ST->ConIn, &key);
         if (status == EFI_SUCCESS) {
             char c = get_ascii_from_efi(key);
             
@@ -114,7 +110,7 @@ void input(char* buffer, int line, int col, int limit) {
                 i--;
                 buffer[i] = '\0';
                 print(" ", line, col + i, 0x07);
-                gST->ConOut->SetCursorPosition(gST->ConOut, col + i, line);
+                ST->ConOut->SetCursorPosition(ST->ConOut, col + i, line);
             }
             else if(c != 0 && i < limit) { 
                 buffer[i] = c;
@@ -157,7 +153,7 @@ void run_hex(char* input_str) {
 }
 
 void delay(int count) {
-    gBS->Stall(count * 1000);
+    BS->Stall(count * 1000);
 }
 
 char* random_num() {
@@ -220,9 +216,9 @@ int memcmp_local(const void* s1, const void* s2, int n) {
 
 struct FADT* find_fadt() {
     EFI_GUID acpi20_guid = { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
-    for (UINTN i = 0; i < gST->NumberOfTableEntries; i++) {
-        if (CompareGuid(&gST->ConfigurationTable[i].VendorGuid, &acpi20_guid) == 0) {
-            struct RSDPDescriptor* rsdp = (struct RSDPDescriptor*)gST->ConfigurationTable[i].VendorTable;
+    for (UINTN i = 0; i < ST->NumberOfTableEntries; i++) {
+        if (CompareGuid(&ST->ConfigurationTable[i].VendorGuid, &acpi20_guid) == 0) {
+            struct RSDPDescriptor* rsdp = (struct RSDPDescriptor*)ST->ConfigurationTable[i].VendorTable;
             if (memcmp_local(rsdp->Signature, "RSD PTR ", 8) == 0) {
                 struct ACPISDTHeader* rsdt = (struct ACPISDTHeader*)(UINTN)rsdp->RsdtAddress;
                 int entries = (rsdt->Length - sizeof(struct ACPISDTHeader)) / 4;
@@ -245,7 +241,7 @@ void acpi_enable(struct FADT* fadt) {
 
 void acpi_disable(struct FADT* fadt) {
     (void)fadt;
-    gRT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+    RT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
 }
 
 int wait_for_power(struct FADT* fadt) {
@@ -765,11 +761,7 @@ void shell_loop() {
 }
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
-    gImageHandle = ImageHandle;
-    gST = SystemTable;
-    gBS = SystemTable->BootServices;
-    gRT = SystemTable->RuntimeServices;
-
+    // Inicjalizacja gnu-efi konfiguruje wewnętrzne zmienne ST, BS i RT automatycznie
     InitializeLib(ImageHandle, SystemTable);
 
     clear();
