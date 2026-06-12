@@ -31,7 +31,7 @@ $(OBJ_FILE): kernel.c
 	$(CC) $(CFLAGS) kernel.c -o $(OBJ_FILE)
 
 $(SO_FILE): $(OBJ_FILE)
-	$(LD) $(LDFLAGS) $(OBJ_FILE) -o $(SO_FILE) $(LIBS)
+    $(LD) $(LDFLAGS) $(EFI_LIB)/crt0-efi-x86_64.o $(OBJ_FILE) -o $(SO_FILE) $(LIBS)
 
 $(TARGET): $(SO_FILE)
 	$(OBJCOPY) -j .text -j .sdata -j .data -j .rodata \

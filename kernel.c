@@ -25,9 +25,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
-extern EFI_SYSTEM_TABLE *ST;
-extern EFI_BOOT_SERVICES *BS;
-extern EFI_RUNTIME_SERVICES *RT;
+EFI_SYSTEM_TABLE *ST;
+EFI_BOOT_SERVICES *BS;
+EFI_RUNTIME_SERVICES *RT;
 
 // RozOS main library
 //
@@ -1289,7 +1289,9 @@ void kernel_main(unsigned int magic, struct multiboot_info* mbi) {
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
     InitializeLib(ImageHandle, SystemTable);
     ST->BootServices->SetWatchdogTimer(0, 0, 0, NULL);
-    
+    ST = SystemTable;
+    BS = SystemTable->BootServices;
+    RT = SystemTable->RuntimeServices;
     // Wejdź do głównego pliku ze sztucznym wskaźnikiem Multiboot
     kernel_main(0, NULL);
     
